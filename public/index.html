@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Copilote IA | Planetebeauty</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --gold: #de9f49;
+      --gold-light: #e8b86d;
+      --black: #121212;
+      --beige: #fdf8f3;
+    }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 50%, #0f0f0f 100%);
+      min-height: 100vh;
+    }
+    .font-display { font-family: 'Playfair Display', serif; }
+    .gold-gradient { background: linear-gradient(135deg, #de9f49, #c4863a); }
+    .glass { background: rgba(30, 30, 30, 0.6); backdrop-filter: blur(12px); }
+    .scrollbar-thin::-webkit-scrollbar { width: 6px; }
+    .scrollbar-thin::-webkit-scrollbar-track { background: #1a1a1a; }
+    .scrollbar-thin::-webkit-scrollbar-thumb { background: #3a3a3a; border-radius: 3px; }
+    .scrollbar-thin::-webkit-scrollbar-thumb:hover { background: #4a4a4a; }
+    @keyframes pulse-gold { 0%, 100% { box-shadow: 0 0 0 0 rgba(222, 159, 73, 0.4); } 50% { box-shadow: 0 0 0 8px rgba(222, 159, 73, 0); } }
+    .pulse-gold { animation: pulse-gold 2s infinite; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeIn 0.3s ease-out; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // ============================================================================
+    // CONFIGURATION
+    // ============================================================================
+    const CONFIG = {
+      SUPABASE_URL: 'https://upqldbeaxuikbzohlgne.supabase.co',
+      SUPABASE_KEY: 'sb_publishable_ncfoGMfBdlqe1pGjOvzyIw_U1afMpay',
+      API_BASE: window.location.origin,
+    };
+
+    // Supabase client
+    const supabase = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+
+    // ============================================================================
+    // COMPOSANTS UI
+    // ============================================================================
+
+    // Logo
+    const Logo = () => (
+      <div className="flex items-center gap-3">
+        <div className="w-12 h-12 gold-gradient rounded-xl flex items-center justify-center shadow-lg">
+          <span className="text-white font-display font-bold text-xl">P</span>
+        </div>
+        <div>
+          <h1 className="text-xl font-display font-semibold text-stone-100">Copilote IA</h1>
+          <p className="text-xs text-stone-500 tracking-wider">PLANETEBEAUTY.COM</p>
+        </div>
+      </div>
+    );
+
+    // KPI Card
+    const KPICard = ({ title, value, unit, trend, icon }) => (
+      <div className="glass border border-stone-800/50 rounded-2xl p-5 hover:border-amber-600/30 transition-all duration-300">
+        <div className="flex justify-between items-start mb-3">
+          <span className="text-stone-500 text-sm font-medium">{title}</span>
+          <span className="text-2xl">{icon}</span>
+        </div>
+        <div className="flex items-baseline gap-2">
+          <span className="text-3xl font-display font-bold text-stone-100">{value}</span>
+          <span className="text-stone-500 text-sm">{unit}</span>
+        </div>
+        {trend !== undefined && (
+          <div className={`text-xs mt-2 font-medium ${trend >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {trend >= 0 ? '↑' : '↓'} {Math.abs(trend)}% vs hier
+          </div>
+        )}
+      </div>
+    );
+
+    // Task Card
+    const TaskCard = ({ task, onApprove, onReject, onDiscuss }) => {
+      const statusConfig = {
+        pending_validation: { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30', label: '⏳ À valider' },
+        approved: { bg: 'bg-emerald-500/20', text: 'text-emerald-400', border: 'border-emerald-500/30', label: '✓ Approuvée' },
+        rejected: { bg: 'bg-red-500/20', text: 'text-red-400', border: 'border-red-500/30', label: '✗ Rejetée' },
+        executing: { bg: 'bg-blue-500/20', text: 'text-blue-400', border: 'border-blue-500/30', label: '⚡ En cours' },
+        completed: { bg: 'bg-stone-500/20', text: 'text-stone-400', border: 'border-stone-500/30', label: '✓ Terminée' },
+      };
+
+      const levelConfig = {
+        1: { label: 'Lecture seule', color: 'text-emerald-400', icon: '👁️' },
+        2: { label: 'Analyse', color: 'text-blue-400', icon: '🔍' },
+        3: { label: 'Modification', color: 'text-amber-400', icon: '✏️' },
+        4: { label: 'Action', color: 'text-orange-400', icon: '⚡' },
+        5: { label: 'Critique', color: 'text-red-400', icon: '🚨' },
+      };
+
+      const status = statusConfig[task.status] || statusConfig.pending_validation;
+      const level = levelConfig[task.decision_level || 3];
+      const cost = task.estimated_cost ? `$${task.estimated_cost.toFixed(2)}` : '~$0.50';
+
+      return (
+        <div className="glass border border-stone-800/50 rounded-2xl p-5 hover:border-amber-600/20 transition-all duration-300 fade-in">
+          <div className="flex justify-between items-start mb-4">
+            <div className="flex-1 pr-4">
+              <h3 className="font-semibold text-stone-100 text-lg">{task.title}</h3>
+              <p className="text-sm text-stone-500 mt-1 line-clamp-2">{task.description || task.task_type}</p>
+            </div>
+            <span className={`px-3 py-1.5 rounded-full text-xs font-medium border ${status.bg} ${status.text} ${status.border}`}>
+              {status.label}
+            </span>
+          </div>
+          
+          <div className="flex flex-wrap items-center gap-3 text-xs text-stone-500 mb-4">
+            <span className={`flex items-center gap-1 ${level.color}`}>
+              {level.icon} Niveau {task.decision_level || 3} • {level.label}
+            </span>
+            <span className="bg-stone-800 px-2 py-1 rounded">💰 {cost}</span>
+            <span>{new Date(task.created_at).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+          </div>
+
+          {task.status === 'pending_validation' && (
+            <div className="flex gap-2 pt-4 border-t border-stone-800">
+              <button
+                onClick={() => onDiscuss(task)}
+                className="flex-1 bg-stone-700 hover:bg-stone-600 text-stone-300 py-2.5 px-4 rounded-xl text-sm font-medium transition-colors"
+              >
+                💬 Discuter
+              </button>
+              <button
+                onClick={() => onApprove(task.id)}
+                className="flex-1 gold-gradient hover:opacity-90 text-white py-2.5 px-4 rounded-xl text-sm font-medium transition-all shadow-lg"
+              >
+                ✓ Approuver
+              </button>
+              <button
+                onClick={() => onReject(task.id)}
+                className="px-4 py-2.5 bg-red-900/30 hover:bg-red-900/50 text-red-400 rounded-xl text-sm font-medium transition-colors"
+              >
+                ✗
+              </button>
+            </div>
+          )}
+        </div>
+      );
+    };
+
+    // Chat Message
+    const ChatMessage = ({ message, isUser }) => (
+      <div className={`flex ${isUser ? 'justify-end' : 'justify-start'} mb-4 fade-in`}>
+        {!isUser && (
+          <div className="w-8 h-8 gold-gradient rounded-lg flex items-center justify-center mr-3 flex-shrink-0">
+            <span className="text-white text-sm font-bold">C</span>
+          </div>
+        )}
+        <div className={`max-w-[75%] rounded-2xl px-4 py-3 ${
+          isUser 
+            ? 'gold-gradient text-white rounded-br-sm shadow-lg' 
+            : 'glass border border-stone-800/50 text-stone-200 rounded-bl-sm'
+        }`}>
+          <p className="text-sm whitespace-pre-wrap leading-relaxed">{message.content}</p>
+          <span className={`text-xs mt-2 block ${isUser ? 'text-white/60' : 'text-stone-500'}`}>
+            {new Date(message.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+          </span>
+        </div>
+        {isUser && (
+          <div className="w-8 h-8 bg-stone-700 rounded-lg flex items-center justify-center ml-3 flex-shrink-0">
+            <span className="text-stone-300 text-sm font-bold">B</span>
+          </div>
+        )}
+      </div>
+    );
+
+    // File Item
+    const FileItem = ({ file, onDownload, onDelete }) => {
+      const icons = {
+        pdf: '📄', xlsx: '📊', xls: '📊', csv: '📊',
+        doc: '📝', docx: '📝', txt: '📝',
+        png: '🖼️', jpg: '🖼️', jpeg: '🖼️', gif: '🖼️',
+        default: '📁'
+      };
+      const ext = file.name?.split('.').pop()?.toLowerCase() || 'default';
+      const icon = icons[ext] || icons.default;
+      const size = file.size ? (file.size / 1024).toFixed(1) + ' KB' : '';
+
+      return (
+        <div className="flex items-center justify-between glass border border-stone-800/50 rounded-xl p-3 hover:border-amber-600/20 transition-all group">
+          <div className="flex items-center gap-3">
+            <span className="text-2xl">{icon}</span>
+            <div>
+              <p className="text-sm text-stone-200 font-medium truncate max-w-[200px]">{file.name}</p>
+              <p className="text-xs text-stone-500">{size} • {new Date(file.created_at || Date.now()).toLocaleDateString('fr-FR')}</p>
+            </div>
+          </div>
+          <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button 
+              onClick={() => onDownload(file)}
+              className="p-2 hover:bg-stone-700 rounded-lg transition-colors"
+              title="Télécharger"
+            >
+              ⬇️
+            </button>
+            <button 
+              onClick={() => onDelete(file)}
+              className="p-2 hover:bg-red-900/30 rounded-lg transition-colors"
+              title="Supprimer"
+            >
+              🗑️
+            </button>
+          </div>
+        </div>
+      );
+    };
+
+    // ============================================================================
+    // APPLICATION PRINCIPALE
+    // ============================================================================
+
+    const App = () => {
+      // États
+      const [activeTab, setActiveTab] = useState('tasks');
+      const [tasks, setTasks] = useState([]);
+      const [kpis, setKpis] = useState({ ca_jour: 0, commandes: 0, panier_moyen: 0, stock_alerte: 0 });
+      const [messages, setMessages] = useState([
+        { id: 1, content: "Bonjour Benoît ! 👋\n\nJe suis ton copilote IA. Tu peux me poser des questions, valider des tâches, ou me demander de créer de nouvelles actions.\n\nQu'est-ce que je peux faire pour toi ?", isUser: false, timestamp: new Date() }
+      ]);
+      const [inputMessage, setInputMessage] = useState('');
+      const [isLoading, setIsLoading] = useState(false);
+      const [files, setFiles] = useState([]);
+      const [isAuthenticated, setIsAuthenticated] = useState(false);
+      const [password, setPassword] = useState('');
+      const chatEndRef = useRef(null);
+      const fileInputRef = useRef(null);
+
+      // Scroll to bottom of chat
+      useEffect(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, [messages]);
+
+      // Charger les données
+      useEffect(() => {
+        if (isAuthenticated) {
+          loadTasks();
+          loadKPIs();
+          loadFiles();
+          
+          // Refresh toutes les 30 secondes
+          const interval = setInterval(() => {
+            loadTasks();
+            loadKPIs();
+          }, 30000);
+          
+          return () => clearInterval(interval);
+        }
+      }, [isAuthenticated]);
+
+      const loadTasks = async () => {
+        try {
+          const { data, error } = await supabase
+            .from('tasks')
+            .select('*')
+            .order('created_at', { ascending: false })
+            .limit(50);
+          
+          if (data) setTasks(data);
+        } catch (err) {
+          console.error('Erreur chargement tâches:', err);
+        }
+      };
+
+      const loadKPIs = async () => {
+        // Simulé pour le moment - à connecter à Shopify
+        setKpis({
+          ca_jour: 1847,
+          commandes: 12,
+          panier_moyen: 154,
+          stock_alerte: 3
+        });
+      };
+
+      const loadFiles = async () => {
+        try {
+          const { data, error } = await supabase.storage
+            .from('documents')
+            .list('uploads', { limit: 100, sortBy: { column: 'created_at', order: 'desc' } });
+          
+          if (data) setFiles(data);
+        } catch (err) {
+          console.error('Erreur chargement fichiers:', err);
+        }
+      };
+
+      const handleApprove = async (taskId) => {
+        try {
+          await supabase
+            .from('tasks')
+            .update({ status: 'approved', approved_at: new Date().toISOString(), approved_by: 'benoit' })
+            .eq('id', taskId);
+          
+          loadTasks();
+          addBotMessage(`✅ Tâche approuvée ! Elle sera exécutée prochainement.`);
+        } catch (err) {
+          console.error('Erreur approbation:', err);
+        }
+      };
+
+      const handleReject = async (taskId) => {
+        try {
+          await supabase
+            .from('tasks')
+            .update({ status: 'rejected', rejected_at: new Date().toISOString() })
+            .eq('id', taskId);
+          
+          loadTasks();
+          addBotMessage(`❌ Tâche rejetée.`);
+        } catch (err) {
+          console.error('Erreur rejet:', err);
+        }
+      };
+
+      const handleDiscuss = (task) => {
+        setActiveTab('chat');
+        addBotMessage(`Tu veux discuter de la tâche "${task.title}" ?\n\nVoici les détails :\n• Type: ${task.task_type}\n• Niveau: ${task.decision_level || 3}\n• Coût estimé: $${task.estimated_cost || 0.5}\n\nQue voudrais-tu savoir ou modifier ?`);
+      };
+
+      const addBotMessage = (content) => {
+        setMessages(prev => [...prev, { id: Date.now(), content, isUser: false, timestamp: new Date() }]);
+      };
+
+      const sendMessage = async () => {
+        if (!inputMessage.trim() || isLoading) return;
+
+        const userMessage = { id: Date.now(), content: inputMessage, isUser: true, timestamp: new Date() };
+        setMessages(prev => [...prev, userMessage]);
+        setInputMessage('');
+        setIsLoading(true);
+
+        try {
+          // Appel à l'API backend pour Claude
+          const response = await fetch(`${CONFIG.API_BASE}/api/chat`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ message: inputMessage, history: messages.slice(-10) })
+          });
+
+          if (response.ok) {
+            const data = await response.json();
+            addBotMessage(data.response);
+          } else {
+            addBotMessage("Désolé, je rencontre un problème technique. Réessaie dans quelques instants.");
+          }
+        } catch (err) {
+          console.error('Erreur chat:', err);
+          addBotMessage("Je ne peux pas me connecter au serveur. Vérifie que le backend est en ligne.");
+        } finally {
+          setIsLoading(false);
+        }
+      };
+
+      const handleFileUpload = async (fileList) => {
+        for (const file of fileList) {
+          try {
+            const { data, error } = await supabase.storage
+              .from('documents')
+              .upload(`uploads/${Date.now()}-${file.name}`, file);
+            
+            if (error) throw error;
+            addBotMessage(`📁 Fichier "${file.name}" uploadé avec succès !`);
+          } catch (err) {
+            console.error('Erreur upload:', err);
+            addBotMessage(`❌ Erreur lors de l'upload de "${file.name}"`);
+          }
+        }
+        loadFiles();
+      };
+
+      const handleFileDownload = async (file) => {
+        try {
+          const { data, error } = await supabase.storage
+            .from('documents')
+            .download(`uploads/${file.name}`);
+          
+          if (data) {
+            const url = URL.createObjectURL(data);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = file.name;
+            a.click();
+            URL.revokeObjectURL(url);
+          }
+        } catch (err) {
+          console.error('Erreur téléchargement:', err);
+        }
+      };
+
+      const handleFileDelete = async (file) => {
+        if (confirm(`Supprimer "${file.name}" ?`)) {
+          try {
+            await supabase.storage.from('documents').remove([`uploads/${file.name}`]);
+            loadFiles();
+          } catch (err) {
+            console.error('Erreur suppression:', err);
+          }
+        }
+      };
+
+      const handleLogin = (e) => {
+        e.preventDefault();
+        // Mot de passe simple pour la démo - à remplacer par auth Supabase
+        if (password === 'planetebeauty2025') {
+          setIsAuthenticated(true);
+        } else {
+          alert('Mot de passe incorrect');
+        }
+      };
+
+      // Page de connexion
+      if (!isAuthenticated) {
+        return (
+          <div className="min-h-screen flex items-center justify-center p-4">
+            <div className="glass border border-stone-800/50 rounded-3xl p-8 w-full max-w-md">
+              <div className="text-center mb-8">
+                <div className="w-20 h-20 gold-gradient rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl">
+                  <span className="text-white font-display font-bold text-3xl">P</span>
+                </div>
+                <h1 className="text-2xl font-display font-semibold text-stone-100">Copilote IA</h1>
+                <p className="text-stone-500 mt-2">Planetebeauty.com</p>
+              </div>
+              <form onSubmit={handleLogin}>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Mot de passe"
+                  className="w-full bg-stone-800/50 border border-stone-700 rounded-xl px-4 py-3 text-stone-200 placeholder-stone-500 focus:outline-none focus:border-amber-600 mb-4"
+                />
+                <button
+                  type="submit"
+                  className="w-full gold-gradient text-white py-3 rounded-xl font-semibold hover:opacity-90 transition-opacity shadow-lg"
+                >
+                  Connexion
+                </button>
+              </form>
+            </div>
+          </div>
+        );
+      }
+
+      // Stats des tâches
+      const pendingTasks = tasks.filter(t => t.status === 'pending_validation').length;
+      const completedTasks = tasks.filter(t => t.status === 'completed').length;
+
+      return (
+        <div className="min-h-screen flex">
+          {/* Sidebar */}
+          <aside className="w-64 glass border-r border-stone-800/50 p-4 flex flex-col">
+            <Logo />
+            
+            <nav className="mt-8 flex-1">
+              {[
+                { id: 'tasks', icon: '📋', label: 'Tâches', badge: pendingTasks },
+                { id: 'chat', icon: '💬', label: 'Discussion' },
+                { id: 'documents', icon: '📁', label: 'Documents' },
+                { id: 'kpis', icon: '📊', label: 'KPIs' },
+              ].map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl mb-2 transition-all ${
+                    activeTab === item.id 
+                      ? 'gold-gradient text-white shadow-lg' 
+                      : 'text-stone-400 hover:bg-stone-800/50 hover:text-stone-200'
+                  }`}
+                >
+                  <span className="text-xl">{item.icon}</span>
+                  <span className="font-medium">{item.label}</span>
+                  {item.badge > 0 && (
+                    <span className={`ml-auto px-2 py-0.5 rounded-full text-xs font-bold ${
+                      activeTab === item.id ? 'bg-white/20' : 'bg-amber-600 text-white'
+                    }`}>
+                      {item.badge}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </nav>
+
+            {/* Quick Stats */}
+            <div className="border-t border-stone-800/50 pt-4 mt-4">
+              <div className="text-xs text-stone-500 mb-2">Aujourd'hui</div>
+              <div className="flex justify-between text-sm">
+                <span className="text-stone-400">CA</span>
+                <span className="text-emerald-400 font-semibold">{kpis.ca_jour.toLocaleString()}€</span>
+              </div>
+              <div className="flex justify-between text-sm mt-1">
+                <span className="text-stone-400">Commandes</span>
+                <span className="text-stone-200 font-semibold">{kpis.commandes}</span>
+              </div>
+            </div>
+          </aside>
+
+          {/* Main Content */}
+          <main className="flex-1 flex flex-col overflow-hidden">
+            {/* Header */}
+            <header className="glass border-b border-stone-800/50 px-6 py-4 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-display font-semibold text-stone-100">
+                  {activeTab === 'tasks' && 'Tâches à valider'}
+                  {activeTab === 'chat' && 'Discussion'}
+                  {activeTab === 'documents' && 'Documents'}
+                  {activeTab === 'kpis' && 'Tableau de bord'}
+                </h2>
+                <p className="text-sm text-stone-500">
+                  {activeTab === 'tasks' && `${pendingTasks} en attente • ${completedTasks} terminées`}
+                  {activeTab === 'chat' && 'Discutez avec votre copilote IA'}
+                  {activeTab === 'documents' && `${files.length} fichiers`}
+                  {activeTab === 'kpis' && 'Métriques en temps réel'}
+                </p>
+              </div>
+              <div className="flex items-center gap-3">
+                {pendingTasks > 0 && (
+                  <div className="flex items-center gap-2 bg-amber-600/20 text-amber-400 px-3 py-1.5 rounded-full text-sm">
+                    <span className="w-2 h-2 bg-amber-400 rounded-full pulse-gold"></span>
+                    {pendingTasks} tâche{pendingTasks > 1 ? 's' : ''} en attente
+                  </div>
+                )}
+              </div>
+            </header>
+
+            {/* Content Area */}
+            <div className="flex-1 overflow-y-auto scrollbar-thin p-6">
+              {/* TASKS TAB */}
+              {activeTab === 'tasks' && (
+                <div className="space-y-4 max-w-3xl">
+                  {tasks.length === 0 ? (
+                    <div className="text-center py-16">
+                      <span className="text-6xl mb-4 block">📭</span>
+                      <p className="text-stone-500">Aucune tâche pour le moment</p>
+                    </div>
+                  ) : (
+                    tasks.map(task => (
+                      <TaskCard
+                        key={task.id}
+                        task={task}
+                        onApprove={handleApprove}
+                        onReject={handleReject}
+                        onDiscuss={handleDiscuss}
+                      />
+                    ))
+                  )}
+                </div>
+              )}
+
+              {/* CHAT TAB */}
+              {activeTab === 'chat' && (
+                <div className="flex flex-col h-full max-w-3xl mx-auto">
+                  <div className="flex-1 overflow-y-auto scrollbar-thin pr-4 mb-4">
+                    {messages.map(msg => (
+                      <ChatMessage key={msg.id} message={msg} isUser={msg.isUser} />
+                    ))}
+                    {isLoading && (
+                      <div className="flex justify-start mb-4">
+                        <div className="w-8 h-8 gold-gradient rounded-lg flex items-center justify-center mr-3">
+                          <span className="text-white text-sm font-bold">C</span>
+                        </div>
+                        <div className="glass border border-stone-800/50 rounded-2xl rounded-bl-sm px-4 py-3">
+                          <div className="flex gap-1">
+                            <span className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{animationDelay: '0ms'}}></span>
+                            <span className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{animationDelay: '150ms'}}></span>
+                            <span className="w-2 h-2 bg-amber-500 rounded-full animate-bounce" style={{animationDelay: '300ms'}}></span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    <div ref={chatEndRef}></div>
+                  </div>
+                  
+                  <div className="glass border border-stone-800/50 rounded-2xl p-2 flex gap-2">
+                    <input
+                      type="text"
+                      value={inputMessage}
+                      onChange={(e) => setInputMessage(e.target.value)}
+                      onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
+                      placeholder="Écrivez votre message..."
+                      className="flex-1 bg-transparent px-4 py-3 text-stone-200 placeholder-stone-500 focus:outline-none"
+                    />
+                    <button
+                      onClick={sendMessage}
+                      disabled={isLoading}
+                      className="gold-gradient text-white px-6 py-3 rounded-xl font-medium hover:opacity-90 transition-opacity disabled:opacity-50 shadow-lg"
+                    >
+                      Envoyer
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* DOCUMENTS TAB */}
+              {activeTab === 'documents' && (
+                <div className="max-w-3xl">
+                  {/* Upload Zone */}
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-stone-700 rounded-2xl p-8 text-center cursor-pointer hover:border-amber-600/50 transition-colors mb-6"
+                  >
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      multiple
+                      onChange={(e) => handleFileUpload(e.target.files)}
+                      className="hidden"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.png,.jpg,.jpeg,.gif"
+                    />
+                    <span className="text-5xl mb-4 block">📤</span>
+                    <p className="text-stone-300 font-medium">Cliquez ou glissez vos fichiers ici</p>
+                    <p className="text-stone-500 text-sm mt-2">PDF, DOCX, XLSX, CSV, Images (max 10MB)</p>
+                  </div>
+
+                  {/* File List */}
+                  <div className="space-y-2">
+                    {files.map((file, i) => (
+                      <FileItem
+                        key={i}
+                        file={file}
+                        onDownload={handleFileDownload}
+                        onDelete={handleFileDelete}
+                      />
+                    ))}
+                    {files.length === 0 && (
+                      <div className="text-center py-8">
+                        <p className="text-stone-500">Aucun document uploadé</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* KPIs TAB */}
+              {activeTab === 'kpis' && (
+                <div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+                    <KPICard title="CA Aujourd'hui" value={kpis.ca_jour.toLocaleString()} unit="€" trend={12} icon="💰" />
+                    <KPICard title="Commandes" value={kpis.commandes} unit="" trend={8} icon="📦" />
+                    <KPICard title="Panier Moyen" value={kpis.panier_moyen} unit="€" trend={-3} icon="🛒" />
+                    <KPICard title="Stock Alerte" value={kpis.stock_alerte} unit="produits" icon="⚠️" />
+                  </div>
+
+                  <div className="glass border border-stone-800/50 rounded-2xl p-6">
+                    <h3 className="font-display font-semibold text-stone-100 mb-4">Objectifs</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="text-stone-400">CA Jour (Objectif: 3 000€)</span>
+                          <span className="text-amber-400 font-medium">{Math.round(kpis.ca_jour / 30)}%</span>
+                        </div>
+                        <div className="w-full bg-stone-800 rounded-full h-2">
+                          <div className="gold-gradient h-2 rounded-full" style={{width: `${Math.min(kpis.ca_jour / 30, 100)}%`}}></div>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="flex justify-between text-sm mb-2">
+                          <span className="text-stone-400">Panier Moyen (Objectif: 200€)</span>
+                          <span className="text-amber-400 font-medium">{Math.round(kpis.panier_moyen / 2)}%</span>
+                        </div>
+                        <div className="w-full bg-stone-800 rounded-full h-2">
+                          <div className="gold-gradient h-2 rounded-full" style={{width: `${Math.min(kpis.panier_moyen / 2, 100)}%`}}></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </main>
+        </div>
+      );
+    };
+
+    // Render
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
